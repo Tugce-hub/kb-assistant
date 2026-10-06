@@ -1,53 +1,120 @@
-# kb-assistant: a measured, permission-aware RAG assistant over GitHub, served via MCP and Slack
+<div align="center">
 
-> **TR özet:** Şirket içi bilgi asistanı. Bir GitHub reposundaki dokümanları ve kodu
-> yapıya duyarlı şekilde parçalar. Hibrit arama (BM25 + vektör, RRF) ve cross-encoder
-> reranking ile getirir. Claude ile kaynak gösteren cevaplar üretir. Bunu hem bir **MCP
-> sunucusu** hem de bir **Slack botu** olarak sunar. Yetki kontrolü retrieval içinde
-> uygulanır, PII/secret'lar indekse girmeden redakte edilir ve her istek audit log'a
-> yazılır. 49 soruluk eval seti ile retrieval doğruluğu, halüsinasyon oranı, gecikme ve
-> maliyet ölçülür; tablolar aşağıda ve CI'da her PR'da tekrar üretilir.
+# kb-assistant
 
-The demo corpus is [`encode/httpx`](https://github.com/encode/httpx) pinned at
-`b5addb64`: 52 files of Markdown docs and Python source, a stand-in for an internal
-repository. Pointing the assistant at a different repo means editing `config/settings.yaml`.
+**A permission-aware RAG assistant for your GitHub docs and code. It works as an MCP server and a Slack bot, and every claim about it is measured.**
 
+![Python](https://img.shields.io/badge/python-3.11-3776AB?logo=python&logoColor=white)
+![MCP](https://img.shields.io/badge/MCP-server-7C3AED)
+![Slack](https://img.shields.io/badge/Slack-bot-4A154B?logo=slack&logoColor=white)
+![LLM](https://img.shields.io/badge/LLM-Ollama%20%7C%20Claude-0EA5E9)
+![Tests](https://img.shields.io/badge/tests-17%20passing-22C55E)
+![License](https://img.shields.io/badge/license-MIT-lightgrey)
+
+</div>
+
+> 🇹🇷 **Özet:** Şirket içi bilgi asistanı. GitHub reposundaki dokümanları ve kodu indeksler.
+> Hibrit arama (BM25 + vektör) ve reranking ile ilgili parçaları bulur. Kaynak gösteren,
+> uydurmayan cevaplar üretir. Bunu **MCP sunucusu** ve **Slack botu** olarak sunar. Yetki
+> kontrolü, PII redaksiyonu ve audit log içerir. 49 soruluk bir eval seti ile retrieval
+> doğruluğunu, halüsinasyon oranını, gecikmeyi ve maliyeti ölçer. Türkçe soruları da
+> İngilizce dokümanlarda bulabilir.
+
+---
+
+## At a glance
+
+| | |
+|---|---|
+| 🎯 **Retrieval** | **93% Hit@5, 0.87 MRR** on 45 hand-written questions; Hit@1 rose from 0.56 to 0.82 with reranking |
+| 🇹🇷 **Turkish → English** | Turkish questions over English docs: Hit@5 rose from **0.17 to 0.83** after an embedding + reranker ablation |
+| 🛡️ **Abstention** | **4/4** questions the corpus can't answer were declined, with nothing invented |
+| 🔒 **Security** | ACLs enforced *inside* retrieval, secrets and PII redacted before indexing, a JSONL audit log of who saw what |
+| 💸 **Cost** | **$0 per query** with a local LLM (Ollama). Claude is one setting away |
+| 🔌 **Interfaces** | MCP server · Slack bot · REST API · CLI. All of them run through one code path |
+| ✅ **CI** | Every PR rebuilds the index and **fails if retrieval quality drops** |
+
+The demo corpus is [`encode/httpx`](https://github.com/encode/httpx) pinned at `b5addb64`:
+52 files of Markdown docs and Python source, standing in for an internal repo. To index
+your own repo, edit `config/settings.yaml`.
+
+## How it works
+
+```mermaid
+flowchart LR
+    subgraph Ingest["Ingest (nightly job)"]
+        GH[GitHub repo<br/>pinned commit] --> RED[Redact secrets & PII]
+        RED --> CH[Structure-aware chunking<br/>md headings · Python AST]
+        CH --> IDX[(BM25 index<br/>+ embeddings)]
+    end
+
+    subgraph Serve["Answer a question"]
+        U1[Slack] --> SVC
+        U2[MCP client] --> SVC
+        U3[REST API] --> SVC
+        SVC[KnowledgeService] --> ACL{ACL mask<br/>by user groups}
+        ACL --> B[BM25]
+        ACL --> V[Vector]
+        B --> RRF[RRF fusion]
+        V --> RRF
+        RRF --> RR[Cross-encoder<br/>rerank]
+        RR --> LLM[LLM<br/>Ollama or Claude]
+        LLM --> ANS[Answer + citations<br/>+ GitHub permalinks]
+    end
+
+    IDX -.-> B
+    IDX -.-> V
+    SVC --> AUD[(Audit log)]
 ```
-              ┌──────────── ingest (CronJob) ───────────────┐
-GitHub repo ─▶│ pinned checkout → PII/secret redaction →    │
-              │ structure-aware chunking (md headings, AST) │──▶ chunks.jsonl / embeddings.npy / bm25.pkl
-              └─────────────────────────────────────────────┘
-                                                                     │
- Slack (@kb, DM) ─┐                                                  ▼
- MCP client ──────┼─▶ KnowledgeService ─▶ ACL mask ─▶ BM25 ─┐
- HTTP API ────────┘      │                         └▶ vector ┴▶ RRF ─▶ cross-encoder ─▶ top-6
-                         │                                                        │
-                         │◀── answer + [n] citations + permalinks ◀── LLM: local Ollama or Claude
-                         └─▶ audit log (JSONL: user, groups, chunks shown, latency, tokens, $)
+
+**Example:** a Turkish question answered from English docs, by the local 3B model, at $0
+(from the eval run):
+
+> **Q:** HTTP/2 desteğini nasıl açarım?
+>
+> **A:** HTTP/2 desteğini açmak için, `httpx` client'inizde HTTP/2 desteği etkinleştirmeniz
+> gerekmektedir. Bu, `pip install httpx[http2]` komutunu kullanarak `httpx` paketini
+> güncellemeniz ve ardından `http2=True` parametresiyle bir `AsyncClient` veya `Client`
+> nesnesi oluşturmanız gerekmektedir. […]
+
+## Quickstart
+
+```bash
+python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
+python -m kbassist.cli index                          # clone at pinned commit, chunk, embed (~3 min, CPU)
+python -m kbassist.cli search "how do I make httpx ignore HTTP_PROXY"
+
+ollama pull qwen2.5:3b                                # free local LLM (default provider)
+python -m kbassist.cli ask "httpx'te varsayılan timeout nedir?"
 ```
+
+To use Claude instead, set `ANTHROPIC_API_KEY` and `KB_LLM__PROVIDER=anthropic`.
+
+---
 
 ## Results
 
-Every number in this section is generated by `eval/run_eval.py` and written into this
-file by `python eval/run_eval.py report`. Nothing here is typed in by hand.
+Every number below comes from `eval/run_eval.py` and is written into this README by
+`python eval/run_eval.py report`. Nothing is typed in by hand.
 
-### Eval set
+### The eval set
 
-`eval/questions.yaml` holds 49 questions, written by hand against the pinned commit and
-phrased the way people ask in Slack, which is usually not the wording the docs use:
+[`eval/questions.yaml`](eval/questions.yaml) holds **49 questions**, written by hand
+against the pinned commit and phrased the way people actually ask in Slack:
 
 | Slice | n | What it tests |
 |---|---:|---|
-| Docs (en) | 27 | How-to questions answered by `docs/**` |
-| Code (en) | 12 | Answers that live only in source, e.g. the redirect method rewrite and the digest `cnonce` |
+| Docs | 27 | How-to questions answered by `docs/**` |
+| Code | 12 | Answers that only exist in source, e.g. redirect method rewriting or the digest-auth `cnonce` |
 | Turkish | 6 | Turkish questions over an English corpus |
-| Unanswerable | 4 | Company questions the corpus can't answer (on-call policy, SLOs). The assistant must decline |
+| Unanswerable | 4 | Company questions (on-call policy, SLOs) that the bot must decline |
 
-Each question has gold file paths, used for retrieval scoring, and short reference facts,
-used for answer grading. One question (`u05`) has a false premise: it asks how to set the
-TTL of a cache that httpx doesn't have.
+Each question has gold file paths, used for retrieval scoring, and reference facts, used
+for answer grading. One question has a false premise: it asks how to set the TTL of a
+cache that httpx doesn't have.
 
-### Retrieval: does the right file reach the LLM?
+### 1 · Retrieval: does the right file reach the LLM?
 
 <!-- BEGIN:retrieval -->
 Embedding `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` · reranker `jinaai/jina-reranker-v2-base-multilingual` · 45 answerable questions · 776 chunks
@@ -60,9 +127,11 @@ Embedding `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` · reran
 | Hybrid + cross-encoder rerank | 0.822 | 0.911 | 0.933 | 0.852 | 0.869 | 2,791 ms | 3,109 ms |
 <!-- END:retrieval -->
 
-Hit@k means at least one gold file appears in the top-k chunks. Recall@5 is the fraction
-of a question's gold files found in the top 5. Latency is measured warm on one CPU
-process (laptop, no GPU) and includes query embedding and reranking.
+<sub>Hit@k: at least one gold file is in the top-k chunks. Recall@5: the fraction of gold
+files found in the top 5. Latency is measured warm on a laptop CPU with no GPU.</sub>
+
+<details>
+<summary><b>Breakdown by slice</b> (code vs. docs, English vs. Turkish)</summary>
 
 <!-- BEGIN:breakdown -->
 | Slice | n | BM25 only Hit@5 | Vector only Hit@5 | Hybrid (BM25 + vector, RRF) Hit@5 | Hybrid + cross-encoder rerank Hit@5 |
@@ -73,7 +142,9 @@ process (laptop, no GPU) and includes query embedding and reranking.
 | lang: tr | 6 | 0.500 | 0.500 | 0.667 | 0.833 |
 <!-- END:breakdown -->
 
-### Model choice (ablation)
+</details>
+
+### 2 · How the models were chosen (ablation)
 
 <!-- BEGIN:ablation -->
 | Embedding model | Reranker | Vector Hit@5 | Hybrid Hit@5 | Hybrid+rerank Hit@5 | Hybrid+rerank MRR@10 | Turkish Hit@5 (hybrid / +rerank) | Hybrid+rerank p50 |
@@ -85,34 +156,27 @@ process (laptop, no GPU) and includes query embedding and reranking.
 | **chosen** `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | `jinaai/jina-reranker-v2-base-multilingual` (pool 10, 1000 chars) | 0.689 | 0.844 | 0.933 | 0.869 | 0.667 / 0.833 | 2,791 ms |
 <!-- END:ablation -->
 
-**What the ablation showed** (these are the experiments I ran, in order):
+**What I learned, in the order I ran the experiments:**
 
-1. **Baseline:** English embedding plus the common `ms-marco-MiniLM` reranker. *The
-   reranker made things worse.* Hit@5 fell from 0.889 (hybrid) to 0.844, and Turkish
-   Hit@5 fell from 0.50 to 0.17. The model was trained on English web passages and does
-   badly on code and Turkish. A reranker is not a free win, and it has to be measured
-   on your own corpus.
-2. **A code-aware multilingual reranker** (`jina-reranker-v2`) fixed the ordering
-   (MRR 0.72 → 0.80). Turkish was still at 0.50, because the right chunks never made it
-   into the candidate pool.
-3. **A multilingual embedding model** is *worse on its own* (vector Hit@5 0.73 → 0.69).
-   But it gets the Turkish candidates into the pool, and then the reranker sorts them
-   correctly. Hit@5 went to 0.978, MRR to 0.885 and Turkish Hit@5 to 1.00. You have to
-   evaluate the pipeline as a whole. Ranking the components one by one would have
-   picked the wrong embedding model.
-4. **Latency:** that configuration took about 10 s p50 on a laptop CPU. Truncating the
-   reranker input to 1,000 chars and reranking 10 candidates instead of 20 brought p50
-   to 2.8 s and p95 from 14 s to 3.1 s, at a cost of 0.016 MRR. That is the shipped
-   default. On a GPU node, or with a hosted reranker, the full pool would be affordable
-   again.
+1. **The popular reranker made results worse.** `ms-marco-MiniLM` dropped Hit@5 from 0.889
+   to 0.844 and Turkish from 0.50 to 0.17. It was trained on English web passages, not on
+   code or Turkish. *A reranker has to be measured on your own corpus before you trust it.*
+2. **A code-aware multilingual reranker fixed the ordering** (MRR 0.72 → 0.80). Turkish
+   stayed at 0.50, because the right chunks never reached the candidate pool.
+3. **A multilingual embedding model is worse on its own but better in the pipeline.**
+   Vector Hit@5 fell from 0.73 to 0.69, but Turkish candidates now reached the reranker:
+   overall Hit@5 rose to **0.978**, and Turkish to **1.00**. Picking each component on its
+   own would have chosen the wrong embedding model.
+4. **Latency tuning.** That setup needed about 10 s p50 on CPU. Reranking 10 candidates
+   instead of 20, truncated to 1,000 chars, brought it to **2.8 s p50 (p95 14 s → 3.1 s)**
+   for a loss of 0.016 MRR. That is the shipped default.
 
-Caveats: n = 45 answerable questions, and only 6 of them are Turkish, so a difference
-of one question moves the Turkish column by 0.17. Gold labels are file-level and kept
-strict. In some "misses" the retriever returned the implementing source file (for
-example `_transports/asgi.py`) where the label expected the docs page. I did not
-relabel those after seeing the results.
+<sub>Caveats: there are 45 answerable questions and only 6 are Turkish, so one question
+moves that column by 0.17. Gold labels are file-level and strict. Some "misses" retrieved
+the implementing source file where the label expected the docs page, and I didn't relabel
+them after seeing the results.</sub>
 
-### Generation: accuracy, hallucination, latency, cost
+### 3 · Generation: accuracy, hallucination, latency, cost
 
 <!-- BEGIN:generation -->
 Generator `qwen2.5:3b` (local via Ollama, CPU only), judge `qwen2.5:3b`, n = 49; second-pass labels: `eval/results/audit.yaml` (claude-opus-5-5 (dev session, not human))
@@ -136,90 +200,91 @@ Generator `qwen2.5:3b` (local via Ollama, CPU only), judge `qwen2.5:3b`, n = 49;
 | **Cost per query** / per 1k queries | $0.0000 / $0.00 |
 <!-- END:generation -->
 
-How generation is measured:
-- **Hallucination** means a claim that the *retrieved sources* don't support. It is not
-  checked against world knowledge. A judge model splits each answer into atomic claims
-  and checks every claim against the exact sources the generator saw (`eval/judge.py`).
-  The hallucination rate is the share of non-abstaining answers with at least one
-  unsupported claim.
+**What I learned:**
+
+1. **The judge needs evaluating too.** A 3B judge agreed with a careful second review on
+   only 69% of verdicts, and it was lenient. It accepted a claim that the Authorization
+   header survives cross-domain redirects (the code strips it). Accuracy fell from 80% to
+   **63%** once those cases were caught. In production I'd use a stronger judge and keep a
+   human-labelled sample.
+2. **The bottleneck is the generator, not retrieval.** In 17 of 20 imperfect answers the
+   right file *was* in the context. The 3B model misread it, or said "not in the sources".
+   A stronger model is one setting away (`KB_LLM__PROVIDER=anthropic`).
+3. **Abstention works:** all 4 unanswerable company questions were declined, and nothing
+   was invented for them.
+4. **The eval caught a product bug.** In JSON mode the small model sometimes writes "here's
+   an example:" and then ends without the code block. The fix is to generate prose first
+   and extract citations separately.
+5. **37 s p50 is fine for an offline demo, not for Slack.** Interactive use needs a GPU or
+   a hosted model.
+
+<details>
+<summary><b>How generation is measured</b></summary>
+
+- **Hallucination** means a claim that the *retrieved sources* don't support. A judge
+  splits each answer into atomic claims and checks every one against the exact sources
+  the generator saw ([`eval/judge.py`](eval/judge.py)).
 - **Accuracy** is graded against the hand-written reference facts.
-- **Abstention** is measured on both sides. The assistant should decline unanswerable
-  questions, and it should not decline answerable ones.
-- **Cost** is computed from the API's own `usage` numbers and the price table in
+- **Abstention** is measured both ways: the bot should decline unanswerable questions,
+  and should not decline answerable ones.
+- **Cost** comes from the model's reported token usage × the price table in
   `config/settings.yaml`. Retrieval runs locally, so the LLM is the only per-query cost.
-  With the local model it is $0.
-- **Second-pass review:** every answer was also labelled against the reference facts
-  and the pinned source (`eval/results/audit.yaml`), to check how far the automatic
-  judge can be trusted. A stronger model wrote those labels during development, not a
-  human, and the file says so.
+- **Second-pass review:** every answer was also labelled against the references and the
+  source code ([`eval/results/audit.yaml`](eval/results/audit.yaml)) to measure how far
+  the automatic judge can be trusted. A stronger model wrote those labels during
+  development, not a human, and the file says so.
 
-**What the generation eval showed:**
+</details>
 
-1. **A 3B model can't be trusted as a judge.** It agreed with the second-pass review on
-   only 69% of correctness labels, and it was lenient. It graded wrong answers as
-   correct: c04 says the Authorization header is kept on a cross-domain redirect, while
-   the code strips it; c12 names the wrong exception. Accuracy drops from 80% to 63% once
-   those are caught. The headline hallucination rate is the same (16%) under both, but
-   that is a coincidence. The two flagged different answers (84% agreement on the
-   flag). **The judge needs evaluating too**, and in production I would use a stronger
-   model as judge and keep a human-labelled sample.
-2. **Retrieval was not the bottleneck; the 3B generator was.** In 17 of the 20
-   answers that weren't fully correct, the gold file was among the sources the model saw. The model then either misread the code (c02 says 10
-   redirects, the code says 20) or said "not in the sources" when it was (11% false
-   abstentions). Moving to a stronger model is the obvious next lever, and the system
-   supports it with one setting (`KB_LLM__PROVIDER=anthropic`).
-3. **Abstention works:** all 4 company questions the corpus can't answer (on-call policy,
-   SLOs, etc.) were declined, and no answer was invented for them.
-4. **A product bug the eval caught:** in JSON mode the small model sometimes writes
-   "here is an example:" and closes the string without the code block (d09, d14, d15,
-   d20). The fix would be to generate prose first and extract citations separately,
-   or to use a stronger model.
-5. **Latency:** about 37 s p50 end to end on a laptop CPU, almost all of it the LLM. That
-   works for an offline demo, not for Slack. A GPU or a hosted model is needed for
-   interactive use.
+---
 
-## Design decisions and trade-offs
+## Design decisions
 
-| Decision | Why | Trade-off accepted |
+| Decision | Why | Trade-off |
 |---|---|---|
-| **Hybrid BM25 + dense, fused with RRF** | BM25 finds exact identifiers (`trust_env`, `DEFAULT_MAX_REDIRECTS`). Dense retrieval finds paraphrases. RRF needs no score calibration between the two. | Two retrievers to maintain |
-| **Cross-encoder rerank of the top 10, truncated to 1,000 chars** | Gives the biggest single quality gain (Hit@1 0.56 → 0.82) once the reranker suits the corpus | It is the most expensive retrieval stage (about 2.8 s on CPU). Pool size and truncation were tuned in the ablation |
-| **Code-aware BM25 tokenizer** | Indexes `max_keepalive_connections` both whole and split into words | Slightly larger index |
-| **Structure-aware chunking** | Markdown is split by heading and keeps its breadcrumb (`Timeouts > Fine tuning`). Python is split per function/class with `ast`, and methods keep their class signature | Language-specific code paths |
-| **Local ONNX embeddings and reranker** (fastembed) | Source code never leaves the network for embedding. Indexing is free. Pods start without a GPU | Smaller models than hosted APIs, and reranking on CPU is slow. A GPU node or a hosted reranker is the next step if the p50 matters |
-| **Multilingual embedding model** | Turkish questions over an English corpus. Chosen by the ablation, not by intuition | Weaker as a standalone retriever. The pipeline makes up for it |
-| **numpy instead of a vector DB** | With about 800 chunks, exact search takes about 1 ms and has perfect recall. A DB would add operational work with no benefit at this size | Needs Qdrant/pgvector past roughly 1M chunks. The swap point is one function |
-| **ACL enforced in retrieval** | Restricted chunks are masked *before* ranking. They can't reach the prompt, citations, MCP `search` or `read_file`. Prompt instructions are never the access control | Mask is computed per group set (cached) |
-| **Redact before indexing** | Secrets and PII (tokens, keys, card numbers, TCKN, IBAN, emails, TR phone numbers) never get embedded or stored. Checksum validators keep false positives low | Redacted text can't be found by search, which is intended |
-| **Structured output (`answerable`, `answer`, `citations`)** | Abstention and citations become machine-checkable, both for the eval and for the Slack UI | None in practice |
-| **Untrusted-source framing** | Retrieved text sits in `<source>` tags and is declared as data, which defends against prompt injection inside repo content | – |
-| **Pluggable LLM: local Ollama (default) or Claude** | With `qwen2.5:3b` on Ollama the whole system runs offline at $0, and no code or question leaves the machine. Claude Opus 5.5 is one setting away (`KB_LLM__PROVIDER=anthropic`) for higher quality | A 3B local model is weaker. The eval measures by how much |
-| **Grammar-constrained JSON on Ollama, structured outputs on Claude** | Both return the same `answerable / answer / citations` schema, so even a small model gives parseable, checkable output | – |
-| **Claude: effort `low` + `fallbacks: "default"`** | Grounded Q&A over 6 short chunks needs little reasoning. If a safety classifier refuses a request, the API re-runs it on the recommended fallback model | Beta header |
+| **Hybrid BM25 + dense, fused with RRF** | BM25 nails exact identifiers (`trust_env`, `DEFAULT_MAX_REDIRECTS`). Dense retrieval catches paraphrases. RRF needs no score calibration | Two retrievers to maintain |
+| **Cross-encoder rerank (top 10, 1,000 chars)** | The biggest single gain: Hit@1 0.56 → 0.82 | About 2.8 s on CPU. Tuned in the ablation |
+| **Code-aware tokenizer** | Indexes `max_keepalive_connections` whole *and* split into words | Slightly larger index |
+| **Structure-aware chunking** | Markdown is split by heading, with a breadcrumb (`Timeouts > Fine tuning`). Python is split per function/class via `ast` | Language-specific code |
+| **Local ONNX models** (fastembed) | Source code never leaves the network to be embedded, and indexing is free | Reranking on CPU is slow |
+| **numpy, not a vector DB** | About 800 chunks: exact search takes about 1 ms with perfect recall | Swap to Qdrant/pgvector at scale; it's one function |
+| **ACLs inside retrieval** | Restricted chunks are masked *before* ranking, so they can't reach the prompt, citations or MCP tools | A mask per group set |
+| **Redact before indexing** | Tokens, keys, cards, TCKN, IBAN, emails and phone numbers are never embedded or stored. Checksums keep false positives low | Redacted text isn't searchable, which is intended |
+| **Structured output** | `answerable / answer / citations` make abstention and citations machine-checkable | – |
+| **Untrusted-source framing** | Retrieved text goes inside `<source>` tags and is treated as data. This defends against prompt injection hidden in repo content | – |
+| **Pluggable LLM** | Ollama runs offline at $0. Claude gives higher quality. The same schema works on both | A local 3B model is weaker, and the eval measures how much |
 
-## Security and governance
+## Security & governance
 
-- **Permission-aware retrieval:** `config/acl.yaml` maps path globs to groups and
+- **Permission-aware retrieval.** [`config/acl.yaml`](config/acl.yaml) maps path globs and
   users to groups. In production, groups come from the IdP and are keyed on the Slack
-  user's verified email. A test (`tests/test_core.py::test_acl_mask_excludes_restricted_chunks_from_retrieval`)
-  checks that a restricted chunk can't be retrieved even when it is the best lexical match.
-- **Audit log:** every `search`, `ask`, `get_document`, denied access and 👍/👎 is
-  written as one JSONL record. Each record holds the user, their groups, the chunk ids
-  shown and cited, latency per stage, tokens and cost. Questions are stored redacted.
-  Answers are stored as a hash, so the log doesn't keep a second copy of generated text.
-- **Secrets:** API tokens come from env or k8s Secrets only. `GITHUB_TOKEN` is passed as
-  an HTTP header and is never written into the git remote URL. The container runs as
-  non-root, and a NetworkPolicy limits egress.
+  user's verified email. A test checks that a restricted chunk can't be retrieved even
+  when it's the best lexical match.
+- **Audit log.** Every search, answer, document read, denied access and 👍/👎 becomes one
+  JSONL record: the user, their groups, the chunks shown and cited, latency per stage,
+  tokens and cost. Questions are stored redacted. Answers are stored as a hash.
+- **Secrets.** Tokens come only from env vars or k8s Secrets. `GITHUB_TOKEN` is sent as an
+  HTTP header and never stored in git config. Containers run as non-root, and egress is
+  limited by a NetworkPolicy.
 
 ## Interfaces
 
-**Slack:** mention `@kb` in a channel or send it a DM. It replies in the thread with the
-answer, links to the cited sources (GitHub permalinks to the indexed commit and line
-range) and 👍/👎 feedback buttons, which give an online quality signal in the audit log.
-It uses Socket Mode, so no public ingress is needed. The app manifest is in
-`deploy/slack-manifest.yaml`.
+<details open>
+<summary><b>Slack bot</b></summary>
 
-**MCP:** `python -m kbassist.mcp_server` (stdio) or `--http 8765`. It exposes these tools:
+Mention `@kb` in a channel or DM it. It replies in a thread with the answer, links to the
+cited sources (GitHub permalinks to the exact commit and lines), and 👍/👎 buttons that
+feed an online quality signal into the audit log. It uses Socket Mode, so no public
+ingress is needed. The app manifest is in
+[`deploy/slack-manifest.yaml`](deploy/slack-manifest.yaml).
+
+```bash
+python -m kbassist.slack_app      # needs SLACK_BOT_TOKEN and SLACK_APP_TOKEN
+```
+</details>
+
+<details open>
+<summary><b>MCP server</b></summary>
 
 | Tool | Purpose |
 |---|---|
@@ -228,68 +293,64 @@ It uses Socket Mode, so no public ingress is needed. The app manifest is in
 | `ask_knowledge_base(question)` | One-shot grounded answer with citations |
 | `list_sources()` | Indexed repos, pinned commits, index stats |
 
-To use it from Claude Code:
-
 ```bash
-claude mcp add kb -- python -m kbassist.mcp_server
+claude mcp add kb -- python -m kbassist.mcp_server     # use it from Claude Code
+python -m kbassist.mcp_server --http 8765              # or serve it over streamable HTTP
+python scripts/mcp_smoke_test.py                       # end-to-end check with a real MCP client
 ```
+</details>
 
-**HTTP API:** `uvicorn kbassist.api:app` serves `/search`, `/ask`, `/documents/{path}`,
-`/healthz` and `/readyz`.
-
-## Run it
+<details>
+<summary><b>REST API, Docker, Kubernetes</b></summary>
 
 ```bash
-python -m venv .venv && .venv/Scripts/activate    # (Linux/macOS: source .venv/bin/activate)
-pip install -e ".[dev]"
-python -m kbassist.cli index                      # clone at pinned commit, chunk, embed (~3 min on CPU)
-python -m kbassist.cli search "how do I make httpx ignore HTTP_PROXY"
-pytest -q
-
-# Evals
-python eval/run_eval.py retrieval                 # no API key needed
-ollama pull qwen2.5:3b                            # free local LLM (default provider)
-python eval/run_eval.py generate                  # answers + LLM judge
-# Claude instead: export ANTHROPIC_API_KEY=... KB_LLM__PROVIDER=anthropic
-python eval/run_eval.py report                    # refresh the tables above
-
-# Interfaces
-python -m kbassist.cli ask "httpx'te varsayılan timeout nedir?"
-python -m kbassist.slack_app                      # needs SLACK_BOT_TOKEN, SLACK_APP_TOKEN
+uvicorn kbassist.api:app --port 8080       # /search  /ask  /documents/{path}  /healthz  /readyz
 docker compose --profile jobs run --rm indexer && docker compose up api slack
+kubectl apply -f deploy/k8s/               # nightly index CronJob + api/slack Deployments
+```
+</details>
+
+## Running the evals
+
+```bash
+pytest -q                                  # 17 unit tests, no network or API key
+python eval/run_eval.py retrieval          # retrieval metrics, free
+python eval/run_eval.py generate           # answers + LLM judge (Ollama by default)
+python eval/run_eval.py report             # refresh the tables in this README
+python eval/run_eval.py gate --min-hit5 0.85 --min-mrr 0.65    # what CI runs
 ```
 
-**CI** (`.github/workflows/ci.yml`) runs on every PR: unit tests, then an index build
-at the pinned commit, then the retrieval eval, then a **quality gate**. A PR that drops
-Hit@5 or MRR below the threshold fails. The generation eval costs money, so it only runs
-on manual dispatch.
+**CI** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs unit tests, then an
+index build at the pinned commit, then the retrieval eval, then a **quality gate** that
+fails the PR if Hit@5 or MRR regress. The LLM eval runs only on manual dispatch.
 
-## Layout
+## Project layout
 
 ```
 src/kbassist/
-  ingest/       github.py (pinned clone), chunking.py (md headings / python AST)
-  index/        bm25.py, embeddings.py (fastembed), store.py (build/save/load)
-  retrieval.py  BM25 + vector + RRF + rerank, ACL-masked
-  generation.py grounded answers, citations, refusal handling
-  llm.py        backends: OllamaLLM (local) and AnthropicLLM (Claude)
-  security/     acl.py, pii.py, audit.py
-  service.py    the one code path shared by CLI / MCP / Slack / API
-  mcp_server.py slack_app.py api.py cli.py observability.py
-eval/           questions.yaml, run_eval.py, judge.py, results/
-deploy/         k8s manifests, Slack manifest
+├── ingest/         github.py (pinned clone) · chunking.py (md headings / Python AST)
+├── index/          bm25.py · embeddings.py (fastembed) · store.py
+├── security/       acl.py · pii.py · audit.py
+├── retrieval.py    BM25 + vector + RRF + rerank, ACL-masked
+├── generation.py   grounded answers, citations, refusal handling
+├── llm.py          OllamaLLM (local) · AnthropicLLM (Claude)
+├── service.py      the one code path behind CLI / MCP / Slack / API
+└── mcp_server.py · slack_app.py · api.py · cli.py · observability.py
+eval/               questions.yaml · run_eval.py · judge.py · results/
+deploy/             k8s manifests · Slack app manifest
 ```
 
-## What I'd do next
+## Roadmap
 
-- **Incremental indexing** driven by GitHub push webhooks, re-embedding only changed
-  files (chunk ids are already content hashes).
-- **Query translation for BM25:** BM25 still can't match Turkish words against English
-  docs (Turkish BM25 Hit@5 is 0.50). A cheap Claude Haiku rewrite of the query into
-  English, run only for non-English questions, would give the lexical retriever a chance.
-- **Reranker on GPU or hosted.** That would bring back the full 20-candidate pool, which
-  was the best configuration measured (Hit@5 0.978).
-- **Online eval loop:** sample 👎 answers from the audit log into the eval set every week.
-- **Agentic retrieval** for multi-hop questions over MCP (search → read_file → search).
-  The tools already support it.
-- **OpenTelemetry export** of the existing `Trace` spans to Langfuse/Grafana.
+- [ ] **Stronger generator and judge.** Run the same eval with Claude and put the
+      local and hosted results side by side
+- [ ] **Query translation for BM25.** Turkish BM25 Hit@5 is still 0.50, and an English
+      rewrite of non-English queries should lift it
+- [ ] **Reranker on a GPU** to bring back the 20-candidate pool (Hit@5 0.978)
+- [ ] **Incremental indexing** from GitHub push webhooks (chunk ids are already content hashes)
+- [ ] **Online eval loop:** feed 👎 answers from the audit log back into the eval set
+- [ ] **OpenTelemetry export** of the existing trace spans
+
+## License
+
+MIT
