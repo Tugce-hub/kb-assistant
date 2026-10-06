@@ -1,0 +1,29 @@
+# Permission-aware retrieval.
+#
+# rules: first matching glob wins. A chunk is visible to a user if the user has
+#        at least one of the rule's groups. Paths that match no rule fall back to
+#        `default_groups`.
+# users: identity -> groups. In production this comes from the IdP (Okta/Google
+#        groups via SCIM) keyed on the Slack user's verified email; the static
+#        map is here so the demo and tests are self-contained.
+
+default_groups: [engineering]
+
+rules:
+  - pattern: "docs/**"
+    groups: [everyone]
+  - pattern: "README.md"
+    groups: [everyone]
+  - pattern: "CHANGELOG.md"
+    groups: [everyone]
+  - pattern: "httpx/**"
+    groups: [engineering]
+  - pattern: ".github/**"
+    groups: [engineering, devops]
+
+users:
+  "*": [everyone]                  # anyone not listed below
+  "eval-runner": [everyone, engineering]
+  "mcp-local": [everyone, engineering]
+  "U0EXAMPLEENG": [everyone, engineering]
+  "U0EXAMPLEOPS": [everyone, devops]

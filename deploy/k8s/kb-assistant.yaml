@@ -1,0 +1,97 @@
+# Minimal production layout:
+#   * CronJob re-indexes nightly into a shared volume; pods load the index at
+#     startup, so a rollout restart after the job picks up the new snapshot.
+#   * api + slack Deployments read the index; secrets come from an ExternalSecret.
+#   * NetworkPolicy: egress limited to DNS + HTTPS; pin GitHub/Slack/Anthropic
+#     hosts with an egress gateway in production.
+# Apply with: kubectl apply -f deploy/k8s/   (secret kb-assistant-secrets must exist)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kb-assistant
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: kb-index, namespace: kb-assistant}
+spec:
+  accessModes: [ReadWriteMany]
+  resources: {requests: {storage: 5Gi}}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata: {name: kb-indexer, namespace: kb-assistant}
+spec:
+  schedule: "0 3 * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext: {runAsNonRoot: true, runAsUser: 10001}
+          containers:
+            - name: indexer
+              image: ghcr.io/your-org/kb-assistant:latest
+              command: ["python", "-m", "kbassist.cli", "index"]
+              envFrom: [{secretRef: {name: kb-assistant-secrets}}]
+              resources: {requests: {cpu: "1", memory: 2Gi}, limits: {memory: 3Gi}}
+              volumeMounts: [{name: data, mountPath: /app/data}]
+          volumes: [{name: data, persistentVolumeClaim: {claimName: kb-index}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: kb-api, namespace: kb-assistant}
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: kb-api}}
+  template:
+    metadata: {labels: {app: kb-api}}
+    spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 10001}
+      containers:
+        - name: api
+          image: ghcr.io/your-org/kb-assistant:latest
+          ports: [{containerPort: 8080}]
+          envFrom: [{secretRef: {name: kb-assistant-secrets}}]
+          readinessProbe: {httpGet: {path: /readyz, port: 8080}, initialDelaySeconds: 10}
+          livenessProbe: {httpGet: {path: /healthz, port: 8080}}
+          resources: {requests: {cpu: 500m, memory: 1Gi}, limits: {memory: 2Gi}}
+          volumeMounts: [{name: data, mountPath: /app/data}]
+      volumes: [{name: data, persistentVolumeClaim: {claimName: kb-index}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: kb-slack, namespace: kb-assistant}
+spec:
+  replicas: 1   # Socket Mode: one connection per app token
+  selector: {matchLabels: {app: kb-slack}}
+  template:
+    metadata: {labels: {app: kb-slack}}
+    spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 10001}
+      containers:
+        - name: slack
+          image: ghcr.io/your-org/kb-assistant:latest
+          command: ["python", "-m", "kbassist.slack_app"]
+          envFrom: [{secretRef: {name: kb-assistant-secrets}}]
+          resources: {requests: {cpu: 500m, memory: 1Gi}, limits: {memory: 2Gi}}
+          volumeMounts: [{name: data, mountPath: /app/data}]
+      volumes: [{name: data, persistentVolumeClaim: {claimName: kb-index}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: kb-api, namespace: kb-assistant}
+spec:
+  selector: {app: kb-api}
+  ports: [{port: 80, targetPort: 8080}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: kb-egress, namespace: kb-assistant}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+    - ports: [{protocol: TCP, port: 443}]   # GitHub, Slack, api.anthropic.com (pin via egress gateway in prod)

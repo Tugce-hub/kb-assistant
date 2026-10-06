@@ -1,0 +1,66 @@
+# Knowledge-assistant configuration. Every value can be overridden with an
+# environment variable of the form KB_<SECTION>__<KEY> (see src/kbassist/config.py).
+
+sources:
+  - name: httpx
+    url: https://github.com/encode/httpx.git
+    # Pinned commit so the index and eval set are reproducible.
+    ref: b5addb64f0161ff6bfe94c124ef76f6a1fba5254
+    include:
+      - "README.md"
+      - "CHANGELOG.md"
+      - "docs/**/*.md"
+      - "httpx/**/*.py"
+      - ".github/**/*.md"
+      - ".github/workflows/*.yml"
+    exclude:
+      - "docs/code_of_conduct.md"
+
+paths:
+  repos_dir: data/repos
+  index_dir: data/index
+  audit_log: data/audit/audit.jsonl
+
+embedding:
+  # Chosen by the eval ablation in README ("Model choice"): multilingual so that
+  # Turkish Slack questions can reach the English corpus.
+  model: sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+  batch_size: 32
+
+reranker:
+  model: jinaai/jina-reranker-v2-base-multilingual
+  enabled: true
+
+retrieval:
+  candidates_per_retriever: 30   # top-N from BM25 and from vector before fusion
+  rerank_pool: 10                # fused candidates sent to the cross-encoder
+  rerank_max_chars: 1000         # truncate reranker input: ~3.6x faster for -0.016 MRR (see ablation)
+  top_k: 6                       # chunks handed to the LLM
+  rrf_k: 60
+
+chunking:
+  max_chars: 1800
+  min_chars: 200
+  overlap_chars: 200
+
+llm:
+  # ollama: free, local, offline (default).  anthropic: Claude via API key.
+  provider: ollama
+  max_tokens: 4000
+  anthropic:
+    model: claude-opus-5-5
+    effort: low          # Q&A over retrieved context; raise for harder routes
+    judge_model: claude-opus-5-5
+  ollama:
+    model: qwen2.5:3b    # fits a 16 GB laptop without a GPU; multilingual (Turkish OK)
+    judge_model: qwen2.5:3b
+    base_url: http://localhost:11434
+    num_ctx: 8192        # Ollama's default window would truncate the 6 sources
+    max_tokens: 1500
+  # USD per 1M tokens, used for cost accounting. Models not listed (local) cost $0.
+  pricing:
+    claude-opus-5-5: {input: 4.00, output: 20.00, cache_read: 0.20, cache_write: 5.00}
+    claude-sonnet-5-5: {input: 2.00, output: 10.00, cache_read: 0.20, cache_write: 2.50}
+    claude-haiku-4-5: {input: 1.00, output: 5.00, cache_read: 0.10, cache_write: 1.25}
+
+acl_file: config/acl.yaml

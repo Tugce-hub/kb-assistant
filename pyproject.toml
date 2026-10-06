@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kbassist"
+version = "0.1.0"
+description = "Internal knowledge assistant: hybrid RAG over GitHub, exposed via MCP and Slack, with an eval harness."
+requires-python = ">=3.11"
+dependencies = [
+  "anthropic>=1.11",
+  "fastembed>=0.8",
+  "numpy>=2.0",
+  "pyyaml>=6",
+  "pydantic>=2.7",
+  "mcp>=2.3",
+  "slack_bolt>=1.30",
+  "fastapi>=0.115",
+  "uvicorn>=0.30",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+kbassist = "kbassist.cli:main"
+kbassist-mcp = "kbassist.mcp_server:main"
+kbassist-slack = "kbassist.slack_app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

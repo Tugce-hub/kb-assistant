@@ -1,0 +1,35 @@
+# Local stack: build the index once, then run the API and the Slack bot on it.
+#   docker compose run --rm indexer
+#   docker compose up api slack
+services:
+  indexer:
+    build: .
+    command: ["python", "-m", "kbassist.cli", "index"]
+    env_file: .env
+    volumes: [kbdata:/app/data]
+    profiles: [jobs]
+
+  api:
+    build: .
+    env_file: .env
+    ports: ["8080:8080"]
+    volumes: [kbdata:/app/data]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')"]
+      interval: 15s
+
+  slack:
+    build: .
+    command: ["python", "-m", "kbassist.slack_app"]
+    env_file: .env
+    volumes: [kbdata:/app/data]
+
+  mcp:
+    build: .
+    command: ["python", "-m", "kbassist.mcp_server", "--http", "8765"]
+    env_file: .env
+    ports: ["8765:8765"]
+    volumes: [kbdata:/app/data]
+
+volumes:
+  kbdata:

@@ -1,0 +1,62 @@
+# Second-pass review of eval/results/generation.json (qwen2.5:3b run).
+#
+# Each answer was compared with the question's reference facts and with the
+# pinned source code. These labels were written by Claude Opus 5.5 during the
+# development session, NOT by a human. The point is to measure how far the
+# small local judge can be trusted; spot-check them before quoting the numbers.
+#
+# correctness:   correct | partial | incorrect
+# hallucination: the answer states something the sources do not support / that is wrong
+# false_abstain: said "not in the sources" although the answer was retrievable
+
+reviewer: claude-opus-5-5 (dev session, not human)
+labels:
+  d01: {correctness: correct, hallucination: false}
+  d02: {correctness: correct, hallucination: false}
+  d03: {correctness: correct, hallucination: false}
+  d04: {correctness: correct, hallucination: false}
+  d05: {correctness: partial, hallucination: false, note: "install step only; omits http2=True"}
+  d06: {correctness: correct, hallucination: false}
+  d07: {correctness: incorrect, hallucination: true, note: "suggests NO_PROXY with the CI box IP instead of trust_env=False"}
+  d08: {correctness: correct, hallucination: false}
+  d09: {correctness: correct, hallucination: false, note: "promises an example, none follows (truncated)"}
+  d10: {correctness: partial, hallucination: false, note: "says body must be read, not that hooks run before reading / call response.read()"}
+  d11: {correctness: incorrect, hallucination: false, false_abstain: false, note: "retrieval miss (gold not in top-6); abstained"}
+  d12: {correctness: incorrect, hallucination: false, false_abstain: true, note: "MockTransport was in the sources"}
+  d13: {correctness: incorrect, hallucination: true, note: "maps the domain to None, which disables the transport"}
+  d14: {correctness: correct, hallucination: false, note: "promised example missing (truncated)"}
+  d15: {correctness: correct, hallucination: false, note: "promised example missing; the 3 'unsupported claims' were invented by the judge"}
+  d16: {correctness: correct, hallucination: false}
+  d17: {correctness: correct, hallucination: false}
+  d18: {correctness: correct, hallucination: false}
+  d19: {correctness: correct, hallucination: false}
+  d20: {correctness: correct, hallucination: false, note: "logging only, no example (truncated)"}
+  d21: {correctness: correct, hallucination: false}
+  d22: {correctness: partial, hallucination: false, note: "misses anyio"}
+  d23: {correctness: correct, hallucination: false}
+  d24: {correctness: correct, hallucination: false}
+  d25: {correctness: partial, hallucination: false, note: "does not name the version (0.25.0)"}
+  d26: {correctness: correct, hallucination: false}
+  c01: {correctness: correct, hallucination: false}
+  c02: {correctness: incorrect, hallucination: true, note: "says 10; DEFAULT_MAX_REDIRECTS = 20"}
+  c03: {correctness: partial, hallucination: false, note: "only the 301+POST case; misses 302 and 303"}
+  c04: {correctness: incorrect, hallucination: true, note: "claims Authorization is kept; _redirect_headers strips it"}
+  c05: {correctness: incorrect, hallucination: true, note: "confuses Accept-Encoding with text charsets"}
+  c06: {correctness: partial, hallucination: false, note: "quotes the docs' older message format, not the current code"}
+  c07: {correctness: incorrect, hallucination: false, false_abstain: true}
+  c08: {correctness: correct, hallucination: false}
+  c09: {correctness: correct, hallucination: false}
+  c10: {correctness: correct, hallucination: false}
+  c11: {correctness: incorrect, hallucination: false, false_abstain: true}
+  c12: {correctness: incorrect, hallucination: true, note: "says ResponseNotRead; correct is StreamConsumed"}
+  t01: {correctness: correct, hallucination: false}
+  t02: {correctness: correct, hallucination: false}
+  t03: {correctness: incorrect, hallucination: false, false_abstain: true, note: "also answered in English"}
+  t04: {correctness: correct, hallucination: false}
+  t05: {correctness: incorrect, hallucination: false, note: "retrieval miss; irrelevant answer about DigestAuth"}
+  t06: {correctness: incorrect, hallucination: false, false_abstain: true}
+  u01: {correctness: correct, hallucination: false}
+  u02: {correctness: correct, hallucination: false}
+  u03: {correctness: correct, hallucination: false}
+  u04: {correctness: correct, hallucination: false, note: "judge marked a correct refusal as incorrect"}
+  u05: {correctness: partial, hallucination: false, note: "declines without inventing a TTL, but misses 'no built-in cache, use Hishel'"}

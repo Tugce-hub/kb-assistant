@@ -1,0 +1,358 @@
+# Eval set for the knowledge assistant over encode/httpx @ b5addb64.
+#
+# gold:      repo paths that contain the answer (retrieval counts a hit if ANY
+#            gold path is retrieved; recall counts the fraction retrieved).
+# reference: the key facts a correct answer must contain (used by the judge).
+# category:  doc | code | unanswerable.  lang: en | tr.
+#
+# Questions were written by reading the sources, phrased the way an engineer
+# would ask in Slack (often NOT using the doc's own wording), and the gold
+# labels were checked by hand against the pinned commit.
+
+questions:
+  # ----------------------------------------------------------------- docs (en)
+  - id: d01
+    lang: en
+    category: doc
+    question: "What's the default timeout in httpx, and how do I turn timeouts off completely?"
+    gold: [docs/advanced/timeouts.md, docs/quickstart.md]
+    reference: "Default is 5 seconds of network inactivity; pass timeout=None (per request or on the Client) to disable."
+
+  - id: d02
+    lang: en
+    category: doc
+    question: "What are the different kinds of timeouts I can configure separately?"
+    gold: [docs/advanced/timeouts.md]
+    reference: "connect, read, write and pool timeouts (ConnectTimeout, ReadTimeout, WriteTimeout, PoolTimeout)."
+
+  - id: d03
+    lang: en
+    category: doc
+    question: "I want to wait up to 60s to connect but only 10s for everything else. How?"
+    gold: [docs/advanced/timeouts.md]
+    reference: "httpx.Timeout(10.0, connect=60.0) passed as timeout= to the Client."
+
+  - id: d04
+    lang: en
+    category: doc
+    question: "What are the default connection pool limits and how do I change them?"
+    gold: [docs/advanced/resource-limits.md, httpx/_config.py]
+    reference: "httpx.Limits; max_connections=100, max_keepalive_connections=20, keepalive_expiry=5; pass limits= to the Client."
+
+  - id: d05
+    lang: en
+    category: doc
+    question: "How do I turn on HTTP/2? Is there anything extra to install?"
+    gold: [docs/http2.md]
+    reference: "pip install httpx[http2], then Client(http2=True) / AsyncClient(http2=True); not enabled by default."
+
+  - id: d06
+    lang: en
+    category: doc
+    question: "Does httpx follow redirects automatically like requests does?"
+    gold: [docs/quickstart.md, docs/compatibility.md]
+    reference: "No, redirects are not followed by default; pass follow_redirects=True. response.history lists followed redirects."
+
+  - id: d07
+    lang: en
+    category: doc
+    question: "Our CI box has HTTP_PROXY set and I want my client to ignore it. What should I do?"
+    gold: [docs/environment_variables.md]
+    reference: "Set trust_env=False on the Client or on the top-level call."
+
+  - id: d08
+    lang: en
+    category: doc
+    question: "Which environment variable points httpx to a custom CA certificate bundle?"
+    gold: [docs/environment_variables.md, docs/advanced/ssl.md]
+    reference: "SSL_CERT_FILE (file) or SSL_CERT_DIR (directory)."
+
+  - id: d09
+    lang: en
+    category: doc
+    question: "How can I log every outgoing request and every response status client-wide?"
+    gold: [docs/advanced/event-hooks.md]
+    reference: "Use event_hooks={'request': [...], 'response': [...]} on the Client."
+
+  - id: d10
+    lang: en
+    category: doc
+    question: "In my response hook response.text blows up because the body isn't read. Why?"
+    gold: [docs/advanced/event-hooks.md]
+    reference: "Response hooks run before the body is read; call response.read() (or await response.aread() for async) inside the hook."
+
+  - id: d11
+    lang: en
+    category: doc
+    question: "How can I send requests straight to my FastAPI app in tests without starting a server?"
+    gold: [docs/advanced/transports.md, docs/async.md]
+    reference: "Use httpx.ASGITransport(app=app) with an AsyncClient (WSGITransport for WSGI apps)."
+
+  - id: d12
+    lang: en
+    category: doc
+    question: "Is there a built-in way to return canned responses in unit tests?"
+    gold: [docs/advanced/transports.md]
+    reference: "httpx.MockTransport(handler) where handler returns an httpx.Response."
+
+  - id: d13
+    lang: en
+    category: doc
+    question: "How do I route requests for one specific domain through a different transport?"
+    gold: [docs/advanced/transports.md]
+    reference: "Use mounts={\"all://example.org\": transport, ...} with URL patterns."
+
+  - id: d14
+    lang: en
+    category: doc
+    question: "How do I use HTTP digest auth?"
+    gold: [docs/advanced/authentication.md]
+    reference: "auth=httpx.DigestAuth(username, password)."
+
+  - id: d15
+    lang: en
+    category: doc
+    question: "How would I write my own auth scheme, e.g. one that adds a token header?"
+    gold: [docs/advanced/authentication.md, httpx/_auth.py]
+    reference: "Subclass httpx.Auth and implement auth_flow(self, request) that modifies the request and yields it."
+
+  - id: d16
+    lang: en
+    category: doc
+    question: "How do I upload a file as multipart form data?"
+    gold: [docs/quickstart.md, docs/advanced/clients.md]
+    reference: "Pass files={'upload-file': open(path, 'rb')} (optionally with filename and content type tuple) to post()."
+
+  - id: d17
+    lang: en
+    category: doc
+    question: "Can I show a progress bar while downloading a big file?"
+    gold: [docs/advanced/clients.md]
+    reference: "Stream the response and use response.num_bytes_downloaded with iter_bytes (e.g. with tqdm/rich) and Content-Length."
+
+  - id: d18
+    lang: en
+    category: doc
+    question: "How do I download a huge response without loading it all into memory?"
+    gold: [docs/quickstart.md, docs/compatibility.md, docs/async.md]
+    reference: "Use httpx.stream(...)/client.stream(...) as a context manager and iterate iter_bytes/iter_text/iter_lines/iter_raw."
+
+  - id: d19
+    lang: en
+    category: doc
+    question: "Coming from requests - can I still pass cookies per request on a Client?"
+    gold: [docs/compatibility.md]
+    reference: "No; cookies should be set on the client (Client(cookies=...)), per-request cookies on a client are not supported."
+
+  - id: d20
+    lang: en
+    category: doc
+    question: "How do I see what's happening at the connection level, like TCP connect and TLS handshake?"
+    gold: [docs/logging.md, docs/advanced/extensions.md]
+    reference: "Enable Python logging at DEBUG for httpx/httpcore, or use the \"trace\" request extension."
+
+  - id: d21
+    lang: en
+    category: doc
+    question: "How can I go through a SOCKS5 proxy?"
+    gold: [docs/advanced/proxies.md]
+    reference: "pip install httpx[socks]; Client(proxy='socks5://user:pass@host:port')."
+
+  - id: d22
+    lang: en
+    category: doc
+    question: "Which async frameworks does httpx work with?"
+    gold: [docs/async.md]
+    reference: "asyncio, trio, and anyio."
+
+  - id: d23
+    lang: en
+    category: doc
+    question: "I want to contribute a fix - how do I run the tests and the linters locally?"
+    gold: [docs/contributing.md, .github/CONTRIBUTING.md]
+    reference: "Use the scripts - scripts/install, scripts/test, scripts/check (and scripts/lint to autoformat)."
+
+  - id: d24
+    lang: en
+    category: doc
+    question: "If I want to catch any timeout, which exception class should I catch?"
+    gold: [docs/exceptions.md, httpx/_exceptions.py]
+    reference: "httpx.TimeoutException (base of ConnectTimeout, ReadTimeout, WriteTimeout, PoolTimeout), a TransportError subclass."
+
+  - id: d25
+    lang: en
+    category: doc
+    question: "In which release did httpx drop Python 3.7 support?"
+    gold: [CHANGELOG.md]
+    reference: "The CHANGELOG lists \"Drop support for Python 3.7 (#2813)\" in release 0.25.0."
+
+  - id: d26
+    lang: en
+    category: doc
+    question: "The server sends text without a charset and I get mojibake. How do I control the decoding?"
+    gold: [docs/advanced/text-encodings.md]
+    reference: "Set default_encoding on the Client to an encoding name or a callable (e.g. using chardet/charset_normalizer) for autodetection."
+
+  # ----------------------------------------------------------------- code (en)
+  - id: c01
+    lang: en
+    category: code
+    question: "What User-Agent does httpx send by default?"
+    gold: [httpx/_client.py]
+    reference: "python-httpx/<version> (USER_AGENT = f\"python-httpx/{__version__}\")."
+
+  - id: c02
+    lang: en
+    category: code
+    question: "How many redirects will httpx follow before giving up?"
+    gold: [httpx/_config.py, httpx/_client.py]
+    reference: "DEFAULT_MAX_REDIRECTS = 20, after which TooManyRedirects is raised; configurable with max_redirects."
+
+  - id: c03
+    lang: en
+    category: code
+    question: "When following redirects, in which cases does a POST get turned into a GET?"
+    gold: [httpx/_client.py]
+    reference: "On 303 (any method except HEAD), on 302 (except HEAD), and on 301 when the method is POST."
+
+  - id: c04
+    lang: en
+    category: code
+    question: "If a redirect sends me to a different domain, does httpx still send my Authorization header?"
+    gold: [httpx/_client.py]
+    reference: "No; Authorization is stripped when redirecting to a different origin, except for a plain http->https upgrade on the same host."
+
+  - id: c05
+    lang: en
+    category: code
+    question: "What does httpx put in the Accept-Encoding header and which compressions can it decode?"
+    gold: [httpx/_decoders.py, httpx/_client.py]
+    reference: "gzip, deflate, plus br and zstd when brotli / zstandard are installed (SUPPORTED_DECODERS minus identity)."
+
+  - id: c06
+    lang: en
+    category: code
+    question: "What does the error message from raise_for_status look like?"
+    gold: [httpx/_models.py]
+    reference: "\"<Client error|Server error|...> '<code> <reason>' for url '<url>'\" plus a redirect location line for 3xx and an MDN link; raises HTTPStatusError."
+
+  - id: c07
+    lang: en
+    category: code
+    question: "How is NO_PROXY handled internally, for example NO_PROXY=* or a bare domain?"
+    gold: [httpx/_utils.py]
+    reference: "get_environment_proxies; \"*\" disables all proxies; a domain becomes an all://*domain mount set to None; IPs/localhost handled separately."
+
+  - id: c08
+    lang: en
+    category: code
+    question: "When several mount patterns match a URL, which one wins?"
+    gold: [httpx/_utils.py, httpx/_client.py]
+    reference: "URLPattern priority - more specific patterns (port, host, scheme) sort first; _transport_for_url picks the first matching pattern."
+
+  - id: c09
+    lang: en
+    category: code
+    question: "How is the client nonce (cnonce) generated in digest auth?"
+    gold: [httpx/_auth.py]
+    reference: "sha1 of nonce_count + nonce + time.ctime() + os.urandom(8), hex digest truncated to 16 chars."
+
+  - id: c10
+    lang: en
+    category: code
+    question: "How do low-level httpcore errors get turned into httpx exceptions?"
+    gold: [httpx/_transports/default.py]
+    reference: "map_httpcore_exceptions context manager uses a mapping (_load_httpcore_exceptions) from httpcore exception types to httpx ones."
+
+  - id: c11
+    lang: en
+    category: code
+    question: "Does the HTTP transport retry failed connections, and how do I configure it?"
+    gold: [httpx/_transports/default.py, docs/advanced/transports.md]
+    reference: "HTTPTransport(retries=N) retries connection failures (ConnectError/ConnectTimeout); default is 0."
+
+  - id: c12
+    lang: en
+    category: code
+    question: "What exception is raised if I try to read a streaming response body twice?"
+    gold: [httpx/_exceptions.py]
+    reference: "StreamConsumed (a StreamError)."
+
+  # --------------------------------------------------------------- Turkish (tr)
+  - id: t01
+    lang: tr
+    category: doc
+    question: "httpx'te varsayılan zaman aşımı süresi kaç saniye?"
+    gold: [docs/advanced/timeouts.md, docs/quickstart.md, httpx/_config.py]
+    reference: "5 saniye (ağ hareketsizliği); timeout=None ile kapatılabilir."
+
+  - id: t02
+    lang: tr
+    category: doc
+    question: "HTTP/2 desteğini nasıl açarım?"
+    gold: [docs/http2.md]
+    reference: "pip install httpx[http2] ve Client(http2=True)."
+
+  - id: t03
+    lang: tr
+    category: code
+    question: "Başka bir domaine yönlendirme olduğunda Authorization başlığı korunuyor mu?"
+    gold: [httpx/_client.py]
+    reference: "Hayır, farklı origin'e yönlendirmede Authorization silinir (aynı host'ta http->https hariç)."
+
+  - id: t04
+    lang: tr
+    category: doc
+    question: "Bağlantı havuzundaki maksimum bağlantı sayısını nasıl sınırlarım?"
+    gold: [docs/advanced/resource-limits.md]
+    reference: "httpx.Limits(max_connections=..., max_keepalive_connections=...) ve Client(limits=...)."
+
+  - id: t05
+    lang: tr
+    category: doc
+    question: "Testlerde gerçek ağa çıkmadan sahte yanıt nasıl döndürebilirim?"
+    gold: [docs/advanced/transports.md]
+    reference: "httpx.MockTransport(handler) kullanılır."
+
+  - id: t06
+    lang: tr
+    category: doc
+    question: "Ortam değişkenlerindeki proxy ayarlarını yok saymak için ne yapmalıyım?"
+    gold: [docs/environment_variables.md]
+    reference: "trust_env=False."
+
+  # ------------------------------------------------------------- unanswerable
+  - id: u01
+    lang: en
+    category: unanswerable
+    question: "What's the on-call escalation policy for production incidents?"
+    gold: []
+    reference: "Not in the indexed sources; the assistant should decline."
+
+  - id: u02
+    lang: en
+    category: unanswerable
+    question: "What's the latency SLO of our internal payments API?"
+    gold: []
+    reference: "Not in the indexed sources; the assistant should decline."
+
+  - id: u03
+    lang: en
+    category: unanswerable
+    question: "How do I request access to the production Kubernetes cluster?"
+    gold: []
+    reference: "Not in the indexed sources; the assistant should decline."
+
+  - id: u04
+    lang: tr
+    category: unanswerable
+    question: "Şirket içinde API anahtarları hangi sıklıkla rotate ediliyor?"
+    gold: []
+    reference: "Kaynaklarda yok; asistan cevap vermeyi reddetmeli."
+
+  - id: u05
+    lang: en
+    category: doc
+    question: "Does httpx ship a built-in HTTP response cache, and how do I configure its TTL?"
+    gold: [docs/compatibility.md, docs/third_party_packages.md]
+    reference: "False-premise question. httpx has no built-in cache; the docs point to Hishel (third-party). A correct answer says so and does not invent a TTL setting."
